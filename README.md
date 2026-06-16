@@ -17,3 +17,12 @@ A Nav2 controller plugin that drives the robot along a planned path.
 - Steers toward each waypoint using heading error
 - Constant forward speed, proportional angular velocity
 - Moves to the next waypoint when within 0.3m
+
+# Question 3 - Action Server vs Service Client (Timeout Behaviour)
+
+A comparison of service and action communication for a 30 second charging task.
+
+- Service server simulates a 30 second trip before responding
+- Service client times out after 5 seconds, showing the limitation of blocking calls
+- Action server publishes feedback every second during the trip
+- Action client stays connected for the full 30 seconds with no timeout issue
