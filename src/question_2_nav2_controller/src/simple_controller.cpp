@@ -27,11 +27,12 @@ namespace simple_controller
 void SimpleController::configure(
   const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
   std::string name,
-  std::shared_ptr<tf2_ros::Buffer> /*tf*/,
+  std::shared_ptr<tf2_ros::Buffer> tf,
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> /*costmap_ros*/)
 {
   node_ = parent;
   plugin_name_ = name;
+  tf_ = tf;    // ← save it
 
   auto node = node_.lock();
   RCLCPP_INFO(node->get_logger(),
@@ -69,8 +70,19 @@ void SimpleController::setPlan(const nav_msgs::msg::Path & path)
   global_plan_ = path;
   current_waypoint_ = 0;  // reset progress
   auto node = node_.lock();
+
   RCLCPP_INFO(node->get_logger(),
     "New plan received with %zu waypoints", global_plan_.poses.size());
+
+  RCLCPP_INFO(node->get_logger(),
+    "First waypoint: (%.2f, %.2f)",
+    path.poses.front().pose.position.x,
+    path.poses.front().pose.position.y);
+
+  RCLCPP_INFO(node->get_logger(),
+    "Last waypoint: (%.2f, %.2f)",
+    path.poses.back().pose.position.x,
+    path.poses.back().pose.position.y);
 }
 
 // percentage=true  --> speed_limit is 0-100, scale current linear_vel_ by that %
@@ -90,33 +102,80 @@ geometry_msgs::msg::TwistStamped SimpleController::computeVelocityCommands(
   nav2_core::GoalChecker * /*goal_checker*/)
 {
   geometry_msgs::msg::TwistStamped cmd;
-  cmd.header.frame_id = "base_link";
-  cmd.header.stamp = rclcpp::Clock().now();
+  cmd.header.frame_id = pose.header.frame_id;
+  cmd.header.stamp = pose.header.stamp;
 
-  // no plan yet, or walked every waypoint -- zero velocity stops the robot
+  // no plan yet or walked every waypoint -- zero velocity stops the robot
   if (global_plan_.poses.empty() || current_waypoint_ >= global_plan_.poses.size()) {
     return cmd;
   }
 
   // vector from robot to active waypoint
-  const auto & target = global_plan_.poses[current_waypoint_];
+  const auto & target_in_map = global_plan_.poses[current_waypoint_];
+
+  // Transform the target waypoint from map frame into the robot's pose frame (odom)
+  geometry_msgs::msg::PoseStamped target;
+  try {
+    tf_->transform(target_in_map, target, pose.header.frame_id,
+                   tf2::durationFromSec(0.1));
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_WARN(node_.lock()->get_logger(), "TF transform failed: %s", ex.what());
+    return cmd;
+  }
+
   double dx = target.pose.position.x - pose.pose.position.x;
   double dy = target.pose.position.y - pose.pose.position.y;
   double dist = std::hypot(dx, dy);
 
-  // close enough -- advance and let next cycle steer toward the new waypoint
+  // close enough -- next move toward the new waypoint
   if (dist < 0.3) {
-    current_waypoint_++;
+    current_waypoint_++;   // ← advance through waypoints, not just stop
+    if (current_waypoint_ >= global_plan_.poses.size()) {
+      RCLCPP_INFO(node_.lock()->get_logger(), "Goal reached");
+    }
     return cmd;
   }
 
   double robot_yaw   = getYaw(pose.pose.orientation);
   double desired_yaw = std::atan2(dy, dx);
 
-  // shortest_angular_distance keeps the error in [-π, π] so we never spin the long way
+  // shortest_angular_distance keeps the error in [-π, π]
   double heading_error = angles::shortest_angular_distance(robot_yaw, desired_yaw);
 
-  cmd.twist.linear.x  = linear_vel_ * std::cos(heading_error);
+  RCLCPP_INFO(
+    node_.lock()->get_logger(),
+    "Robot=(%.2f, %.2f) Target=(%.2f, %.2f)",
+    pose.pose.position.x,
+    pose.pose.position.y,
+    target.pose.position.x,
+    target.pose.position.y);
+
+  RCLCPP_INFO(
+    node_.lock()->get_logger(),
+    "RobotYaw=%.2f DesiredYaw=%.2f Error=%.2f",
+    robot_yaw,
+    desired_yaw,
+    heading_error);
+
+  RCLCPP_INFO(
+    node_.lock()->get_logger(),
+    "Pose frame=%s Plan frame=%s",
+    pose.header.frame_id.c_str(),
+    global_plan_.header.frame_id.c_str());
+
+  RCLCPP_INFO(
+  node_.lock()->get_logger(),
+  "Current waypoint index: %zu / %zu",
+  current_waypoint_,
+  global_plan_.poses.size());
+
+  if (std::fabs(heading_error) > 0.5) {
+  cmd.twist.linear.x = 0.0;
+  } else {
+  cmd.twist.linear.x = linear_vel_;
+  }
+
+
   cmd.twist.angular.z = k_angular_  * heading_error;
 
   return cmd;

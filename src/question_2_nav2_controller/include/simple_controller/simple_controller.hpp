@@ -8,6 +8,8 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "pluginlib/class_list_macros.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 /*
  * Proportional Heading Controller Plugin for Nav2
@@ -54,8 +56,7 @@ public:
     const geometry_msgs::msg::Twist & velocity,
     nav2_core::GoalChecker * goal_checker) override;
 
-  // percentage=true  --> 0-100 scale of linear_vel_
-  // percentage=false --> absolute cap in m/s
+
   void setSpeedLimit(const double & speed_limit, const bool & percentage) override;
 
 private:
@@ -65,10 +66,11 @@ private:
   rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
   std::string plugin_name_;
   nav_msgs::msg::Path global_plan_;
+  std::shared_ptr<tf2_ros::Buffer> tf_;    // needed to transform plan into odom frame
 
   double linear_vel_{0.3};     // forward speed (m/s)
-  double k_angular_{1.5};      // proportional gain: angular.z = k * heading_err
-  size_t current_waypoint_{0}; // index into global_plan_.poses we are steering toward
+  double k_angular_{1.5};      //
+  size_t current_waypoint_{0};
 };
 
 }  // namespace simple_controller

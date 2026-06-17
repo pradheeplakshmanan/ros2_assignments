@@ -10,6 +10,7 @@ find_package(pluginlib REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(angles REQUIRED)
 
 # ── Build as a SHARED library (required for pluginlib)
@@ -22,7 +23,7 @@ target_include_directories(simple_controller PUBLIC
 
 ament_target_dependencies(simple_controller
   rclcpp nav2_core nav2_costmap_2d nav2_util
-  pluginlib geometry_msgs nav_msgs tf2_ros angles)
+  pluginlib geometry_msgs nav_msgs tf2_ros tf2_geometry_msgs angles)
 
 # ── Register the plugin.xml with pluginlib
 pluginlib_export_plugin_description_file(nav2_core plugin.xml)
@@ -37,6 +38,9 @@ install(DIRECTORY include/
 
 install(FILES plugin.xml
   DESTINATION share/${PROJECT_NAME})
+
+install(DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config)
 
 ament_export_include_directories(include)
 ament_export_libraries(simple_controller)
